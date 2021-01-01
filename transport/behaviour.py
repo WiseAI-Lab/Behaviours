@@ -2,16 +2,104 @@ import time
 from collections import namedtuple
 from typing import Union, Optional
 
-from wgent.acl import AID, ACLMessage
-from wgent.base_types import AgentState
-from wgent.behaviours import InternalBehaviour
-from wgent.config import ConfigHandler
+from wise_agent.acl import AID, ACLMessage
+from wise_agent.base_types import AgentState
+from wise_agent.behaviours import InternalBehaviour
+from wise_agent.config import ConfigHandler
 
 AgentInfo = namedtuple(
     'AgentInfo', ['server_host', 'topic', 'status', 'last_time'])
 
+BasicInfo = namedtuple(
+    'BasicInfo', ['server_host', 'topic'])
 
-class AgentTable:
+
+# -------------------Table----------------
+class TransportTable:
+    """
+        TransportTable to record the information about the connector.
+        0 name: (server, topic)
+
+        Example:
+            Loop Table
+            1.For
+            table = TransportTable()
+            for name, info in table:
+                ...
+            2.Iter
+            table = iter(TransportTable)
+            next(table)
+    """
+
+    def __init__(self):
+        self._table = {}
+
+    # ---------------------Basic Func--------------------
+
+    def whole(self) -> dict:
+        """
+            Return the whole table for a dict.
+        """
+        return self._table
+
+    def filter_as_sub(self):
+        """
+
+        Returns:
+
+        """
+        receivers = {}
+        for name, info in self._table.items():
+            server_host = info.server_host
+            topic = info.topic
+            if server_host in receivers.keys():
+                if topic not in receivers[server_host]:
+                    receivers[server_host].append(topic)
+            else:
+                receivers[server_host] = [topic]
+        return receivers
+
+    def add(self, name, info):
+        """
+            Add a user to table.
+        """
+        if info in list(self._table.values()):
+            raise ValueError("current info:{} have existed in table".format(info))
+        self._table[name] = info
+
+    def get(self, name):
+        """
+            Get the information by name.
+        """
+        if name in self._table.keys():
+            return self._table[name]
+        else:
+            raise KeyError("Input user's name not exist.")
+
+    def update(self, name: str, info):
+        """
+            Update the user's info.
+        """
+        self._table[name] = info
+
+    def in_table(self, name) -> bool:
+        """
+            Check a name whether in table.
+        """
+        if name in self._table.keys():
+            return True
+        else:
+            return False
+
+    # -----------------------Magic Func--------------------
+    def __iter__(self):
+        return iter(self._table.items())
+
+    def __next__(self):
+        return next(self)
+
+
+class AgentTable(TransportTable):
     """
         AgentTable: Literal
         --------------------------
@@ -19,8 +107,8 @@ class AgentTable:
         1 name: (server, topic, status, time)
         2 name: (server, topic, status, time)
         3 name: (server, topic, status, time)
-        E.g
-        4 "local@localhost:0000@topic" : ("localhost:0000", "topic", ALIVE, 15611165165)
+        ...
+        E.g: "local@localhost:0000@topic" : ("localhost:0000", "topic", ALIVE, 15611165165)
         ...
         --------------------------
         Example:
@@ -36,7 +124,7 @@ class AgentTable:
     """
 
     def __init__(self):
-        self._table = {}
+        super(AgentTable, self).__init__()
         self.main_name: Optional[str] = None  # ensure a main system.
         self._init()
 
@@ -44,10 +132,11 @@ class AgentTable:
     def _init(self):
         config_content = ConfigHandler().read()
         # info
-        system_name = config_content.system_name
-        system_address = config_content.system_address
-        system_port = config_content.system_port
-        system_topic = config_content.system_topic
+        mq_config = config_content.mq_config
+        system_name = mq_config.get('system_name')
+        system_address = mq_config.get('system_address')
+        system_port = mq_config.get('system_port')
+        system_topic = mq_config.get('system_topic')
         name = f"{system_name}@{system_address}:{system_port}@{system_topic}"
         # congregate
         info = AgentInfo(server_host=f"{system_address}:{system_port}", topic=system_topic,
@@ -55,33 +144,13 @@ class AgentTable:
         self.add(name, info)
         self.main_name = name
 
-    def whole(self) -> dict:
-        """
-            Return the whole table for a dict.
-        """
-        return self._table
-
-    def return_as_sub(self):
-        receivers = {}
-        for name, info in self._table.items():
-            server_host = info.server_host
-            topic = info.topic
-            if server_host in receivers.keys():
-                if topic not in receivers[server_host]:
-                    receivers[server_host].append(topic)
-            else:
-                receivers[server_host] = [topic]
-        return receivers
-
     def add(self, name: Union[AID, str], info: AgentInfo):
         """
             Add a user to table.
         """
         if isinstance(name, AID):
             name = str(name)
-        if info in list(self._table.values()):
-            raise ValueError("current info:{} have existed in table".format(info))
-        self._table[name] = info
+        super(AgentTable, self).add(name, info)
 
     def get(self, name: Union[AID, str]) -> AgentInfo:
         """
@@ -89,16 +158,7 @@ class AgentTable:
         """
         if isinstance(name, AID):
             name = str(name)
-        if name in self._table.keys():
-            return self._table[name]
-        else:
-            raise KeyError("Input user's name not exist.")
-
-    def update(self, name: str, info: AgentInfo):
-        """
-            Update the user's info.
-        """
-        self._table[name] = info
+        return super(AgentTable, self).get(name)
 
     def in_table(self, name: Union[AID, str]) -> bool:
         """
@@ -106,24 +166,15 @@ class AgentTable:
         """
         if isinstance(name, AID):
             name = str(name)
-        if name in self._table.keys():
-            return True
-        else:
-            return False
-
-    # -----------------------Magic Func--------------------
-    def __iter__(self):
-        return iter(self._table.items())
-
-    def __next__(self):
-        return next(self)
+        return super(AgentTable, self).in_table(name)
 
 
-# -------------------Transport------------
+# -------------------Transport Behaviour------------
 class TransportBehaviour(InternalBehaviour):
     """
         A transport behaviour to manage message to
     """
+    _table = None
 
     def __init__(self, agent):
         super(TransportBehaviour, self).__init__(agent)
@@ -165,8 +216,9 @@ class TransportBehaviour(InternalBehaviour):
                     self.step()
         """
 
-    def on_start(self):
+    def on_start(self, *args, **kwargs):
         """
             Start a transport behaviour
         """
-        self._table = AgentTable()
+        if self._table is None:
+            raise ValueError("You should define a table in your transport behaviour.")
