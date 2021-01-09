@@ -2,7 +2,6 @@ import abc
 from typing import Union, List, Dict
 
 from wise_agent.acl import ACLMessage
-from wise_agent.acl.messages import MessageType
 from wise_agent.behaviours.transport.mqtb.behaviour import MessageTransportBehaviour
 from wise_agent.utility import logger, start_task
 
@@ -11,10 +10,8 @@ class MQTTMessageTransportBehaviour(MessageTransportBehaviour):
     def __init__(self, agent):
         super(MQTTMessageTransportBehaviour, self).__init__(agent)
         self._clients = {}
-        config = agent.config_handler.read()
-        mq_config = config.mq_config
-        self._username = mq_config.get('username')
-        self._password = mq_config.get('password')
+        self._username = agent.config_handler.get('mq_config.username')
+        self._password = agent.config_handler.get('mq_config.password')
 
     def pull(self, userdata, message):
         """
@@ -26,7 +23,7 @@ class MQTTMessageTransportBehaviour(MessageTransportBehaviour):
         Returns:
 
         """
-        self._running_tasks = start_task(self._running_tasks, self._pool_executor,
+        self._running_tasks = start_task(self._running_tasks, self._tasks_pool,
                                          self._dispatch_consume_message, message)
 
     def _subscribe(self, message: Union[ACLMessage, None] = None):

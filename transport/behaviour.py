@@ -7,11 +7,17 @@ from wise_agent.base_types import AgentState
 from wise_agent.behaviours import InternalBehaviour
 from wise_agent.config import ConfigHandler
 
-AgentInfo = namedtuple(
-    'AgentInfo', ['server_host', 'topic', 'status', 'last_time'])
-
 BasicInfo = namedtuple(
-    'BasicInfo', ['server_host', 'topic'])
+    'BasicInfo', ['server_host'])
+
+MessageInfo = namedtuple(
+    'MessageInfo', ['server_host', 'topic'])
+
+AgentInfo = namedtuple(
+    'AgentInfo', ['server_host', 'status', 'last_time'])
+
+AgentMessageQueueInfo = namedtuple(
+    'AgentMessageQueueInfo', ['server_host', 'topic', 'status', 'last_time'])
 
 
 # -------------------Table----------------
@@ -41,23 +47,6 @@ class TransportTable:
             Return the whole table for a dict.
         """
         return self._table
-
-    def filter_as_sub(self):
-        """
-
-        Returns:
-
-        """
-        receivers = {}
-        for name, info in self._table.items():
-            server_host = info.server_host
-            topic = info.topic
-            if server_host in receivers.keys():
-                if topic not in receivers[server_host]:
-                    receivers[server_host].append(topic)
-            else:
-                receivers[server_host] = [topic]
-        return receivers
 
     def add(self, name, info):
         """
@@ -99,9 +88,31 @@ class TransportTable:
         return next(self)
 
 
-class AgentTable(TransportTable):
+class MessageQueueTransportTable(TransportTable):
+    def __init__(self):
+        super(MessageQueueTransportTable, self).__init__()
+
+    def filter_as_sub(self):
+        """
+
+        Returns:
+
+        """
+        receivers = {}
+        for name, info in self._table.items():
+            server_host = info.server_host
+            topic = info.topic
+            if server_host in receivers.keys():
+                if topic not in receivers[server_host]:
+                    receivers[server_host].append(topic)
+            else:
+                receivers[server_host] = [topic]
+        return receivers
+
+
+class AgentMQTransportTable(MessageQueueTransportTable):
     """
-        AgentTable: Literal
+        MessageQueueTable: Literal
         --------------------------
         0 name: (server, topic, status, time)
         1 name: (server, topic, status, time)
@@ -124,13 +135,13 @@ class AgentTable(TransportTable):
     """
 
     def __init__(self):
-        super(AgentTable, self).__init__()
+        super(AgentMQTransportTable, self).__init__()
         self.main_name: Optional[str] = None  # ensure a main system.
         self._init()
 
     # ---------------------Basic Func--------------------
     def _init(self):
-        config_content = ConfigHandler().read()
+        config_content = ConfigHandler().config
         # info
         mq_config = config_content.mq_config
         system_name = mq_config.get('system_name')
@@ -139,8 +150,10 @@ class AgentTable(TransportTable):
         system_topic = mq_config.get('system_topic')
         name = f"{system_name}@{system_address}:{system_port}@{system_topic}"
         # congregate
-        info = AgentInfo(server_host=f"{system_address}:{system_port}", topic=system_topic,
-                         status=AgentState.ALIVE, last_time=int(time.time()))
+        info = AgentMessageQueueInfo(server_host=f"{system_address}:{system_port}",
+                                     topic=system_topic,
+                                     status=AgentState.ALIVE,
+                                     last_time=int(time.time()))
         self.add(name, info)
         self.main_name = name
 
@@ -150,7 +163,7 @@ class AgentTable(TransportTable):
         """
         if isinstance(name, AID):
             name = str(name)
-        super(AgentTable, self).add(name, info)
+        super(AgentMQTransportTable, self).add(name, info)
 
     def get(self, name: Union[AID, str]) -> AgentInfo:
         """
@@ -158,7 +171,7 @@ class AgentTable(TransportTable):
         """
         if isinstance(name, AID):
             name = str(name)
-        return super(AgentTable, self).get(name)
+        return super(AgentMQTransportTable, self).get(name)
 
     def in_table(self, name: Union[AID, str]) -> bool:
         """
@@ -166,7 +179,7 @@ class AgentTable(TransportTable):
         """
         if isinstance(name, AID):
             name = str(name)
-        return super(AgentTable, self).in_table(name)
+        return super(AgentMQTransportTable, self).in_table(name)
 
 
 # -------------------Transport Behaviour------------
@@ -174,14 +187,14 @@ class TransportBehaviour(InternalBehaviour):
     """
         A transport behaviour to manage message to
     """
-    _table = None
+    _agent_table: Optional[TransportTable] = None
+    _table: Optional[TransportTable] = None
 
     def __init__(self, agent):
         super(TransportBehaviour, self).__init__(agent)
         self.is_daemon = True
-        self._table: Optional[AgentTable] = None
 
-    def push(self, message):
+    def push(self, message, is_agent=True):
         """
             Send the message
         """

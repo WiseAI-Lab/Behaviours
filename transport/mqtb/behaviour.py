@@ -1,11 +1,9 @@
 import abc
-from concurrent.futures.process import ProcessPoolExecutor
-from concurrent.futures.thread import ThreadPoolExecutor
-from typing import Union, Dict, List
+from typing import Union, Dict, List, Optional
 
 from wise_agent.acl import ACLMessage
 from wise_agent.acl.messages import MessageType
-from wise_agent.behaviours.transport.behaviour import TransportBehaviour
+from wise_agent.behaviours.transport.behaviour import TransportBehaviour, MessageQueueTransportTable
 from wise_agent.utility import start_task, logger
 
 
@@ -23,18 +21,10 @@ class MessageTransportBehaviour(TransportBehaviour):
         self._producers = {}  # Record a producer
         self.consumers = {}  # consumers from diff server.
         self._running_tasks = {}
-        # config defined
-        config = self.agent.config_handler.read()
-        if config.is_process_pool:
-            self._pool_executor: Union[ProcessPoolExecutor] = ProcessPoolExecutor(
-                max_workers=config.pool_size)
-        else:
-            self._pool_executor: Union[ThreadPoolExecutor] = ThreadPoolExecutor(
-                max_workers=config.pool_size, thread_name_prefix='transport_')
-        self.config = config
+        self._table: Optional[MessageQueueTransportTable] = None
 
-    # -----------------About Table------------------------
-    def _confirm_the_address(self, message: Union[ACLMessage, None]) -> Dict[str, List[str]]:
+    @staticmethod
+    def _confirm_the_address(table, message: Union[ACLMessage, None]) -> Dict[str, List[str]]:
         """
             Confirm the address that agent easily dispatch.
         Args:
@@ -46,12 +36,12 @@ class MessageTransportBehaviour(TransportBehaviour):
         receivers: Dict[str, List[str]] = {}
 
         if message is None:
-            receivers = self._table.filter_as_sub()
+            receivers = table.filter_as_sub()
         else:
             if message.receivers is not None:
                 for r in message.receivers:  # It's the name as key.
-                    if self._table.in_table(r):
-                        info = self._table.get(r)
+                    if table.in_table(r):
+                        info = table.get(r)
                         server_host = info.server_host
                         cur_topic = info.topic
                         if server_host in receivers.keys():
@@ -62,13 +52,16 @@ class MessageTransportBehaviour(TransportBehaviour):
                         else:
                             receivers[server_host] = [cur_topic]
             else:
-                receivers = self._table.filter_as_sub()
+                receivers = table.filter_as_sub()
         return receivers
 
     # ---------------Main Func-----------------
-    def push(self, message):
+    def push(self, message, is_agent=False):
         # Add to the pool task.
-        self._running_tasks = start_task(self._running_tasks, self._pool_executor, self._produce, message)
+        self._running_tasks = start_task(self._running_tasks,
+                                         self._tasks_pool,
+                                         self._produce,
+                                         message)
 
     def _dispatch_consume_message(self, msg: Union[str, bytes], **kwargs):
         """
