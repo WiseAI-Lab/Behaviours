@@ -617,20 +617,16 @@ class FlaskVisualizationBrainBehaviour(BrainBehaviour):
         super(FlaskVisualizationBrainBehaviour, self).__init__(agent)
         self.session_name = str(uuid.uuid1())[:13]
         self.session = dict()
-        self.flask_config = self.agent.config_handler.get("flask_config", False)
-        # Default
-        try:
-            self.flask_config.get("username")
-        except TypeError:
+        self.flask_config = self.agent.config_handler.get("flask_config")
+        if not self.flask_config:
+            self.flask_config = {}
+        if not self.flask_config.get("username", False):
             self.flask_config['username'] = "wise_agent"
-        try:
-            self.flask_config.get("password")
-        except TypeError:
+        if not self.flask_config.get("password", False):
             self.flask_config['password'] = "wise_agent"
-        try:
-            self.flask_config.get("email")
-        except TypeError:
+        if not self.flask_config.get("email", False):
             self.flask_config['email'] = "wise@agent.com"
+        print(self.flask_config)
 
     def _initialize_database(self):
         db.create_all()
@@ -650,13 +646,12 @@ class FlaskVisualizationBrainBehaviour(BrainBehaviour):
                                    state='Active')
             db.session.add(self.session)
             db.session.commit()
-        if len(self.user) != 0:
-            user = User(username=self.flask_config.get('username'),
-                        email=self.flask_config.get('email'),
-                        password=self.flask_config.get('password'),
-                        session_id=self.session.id)
-            db.session.add(user)
-            db.session.commit()
+        user = User(username=self.flask_config.get('username'),
+                    email=self.flask_config.get('email'),
+                    password=self.flask_config.get('password'),
+                    session_id=self.session.id)
+        db.session.add(user)
+        db.session.commit()
 
     def new_agent(self, agent):
         agent = AgentModel(name=agent.aid.name,

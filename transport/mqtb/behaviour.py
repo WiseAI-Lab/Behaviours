@@ -1,9 +1,10 @@
 import abc
+import asyncio
 from typing import Union, Dict, List, Optional
 
 from wise_agent.acl import ACLMessage
 from wise_agent.acl.messages import MessageType
-from wise_agent.behaviours.transport.behaviour import TransportBehaviour, MessageQueueTransportTable
+from wise_agent.behaviours.transport import TransportBehaviour, MessageQueueTransportTable
 from wise_agent.utility import start_task, logger
 
 
@@ -24,7 +25,7 @@ class MessageTransportBehaviour(TransportBehaviour):
         self._table: Optional[MessageQueueTransportTable] = None
 
     @staticmethod
-    def _confirm_the_address(table, message: Union[ACLMessage, None]) -> Dict[str, List[str]]:
+    def _confirm_the_address(table, message: Union[ACLMessage, None]) -> List:
         """
             Confirm the address that agent easily dispatch.
         Args:
@@ -33,26 +34,18 @@ class MessageTransportBehaviour(TransportBehaviour):
         Returns: Dict[str, List[str]]
 
         """
-        receivers: Dict[str, List[str]] = {}
+        receivers = list()
 
         if message is None:
-            receivers = table.filter_as_sub()
+            receivers = table.get_pubs()
         else:
             if message.receivers is not None:
                 for r in message.receivers:  # It's the name as key.
-                    if table.in_table(r):
-                        info = table.get(r)
-                        server_host = info.server_host
-                        cur_topic = info.topic
-                        if server_host in receivers.keys():
-                            if cur_topic not in receivers[server_host]:
-                                receivers[server_host].append(cur_topic)
-                            else:
-                                continue
-                        else:
-                            receivers[server_host] = [cur_topic]
+                    if table.in_table({"name": r}):
+                        memory_info = table.get({"name": r})
+                        receivers.append(memory_info)
             else:
-                receivers = table.filter_as_sub()
+                receivers = table.get_pubs()
         return receivers
 
     # ---------------Main Func-----------------
@@ -90,7 +83,7 @@ class MessageTransportBehaviour(TransportBehaviour):
         # Push to Queue
         self.agent.memory_handler.wait_and_put(self.agent.memory_pieces_queue, memory_piece)
 
-    async def run(self):
+    def run(self):
         """
             start a loop to receive the data
         """
@@ -98,7 +91,7 @@ class MessageTransportBehaviour(TransportBehaviour):
         self._subscribe()
         # 2.Starting to wait for agent send the message.
         self.step()
-        logger.info("Transport Starting.")
+        logger.info("Transport Started.")
 
     # ---------------Abc Func------------------
     @abc.abstractmethod

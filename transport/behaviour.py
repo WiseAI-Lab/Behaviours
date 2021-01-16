@@ -1,193 +1,130 @@
+import importlib
 import time
 from collections import namedtuple
 from typing import Union, Optional
 
-from wise_agent.acl import AID, ACLMessage
-from wise_agent.base_types import AgentState
-from wise_agent.behaviours import InternalBehaviour
-from wise_agent.config import ConfigHandler
+from littletable import Table
 
-BasicInfo = namedtuple(
-    'BasicInfo', ['server_host'])
+from wise_agent.config import ConfigHandler
+from wise_agent.acl import AID, ACLMessage
+from wise_agent.behaviours import InternalBehaviour
 
 MessageInfo = namedtuple(
-    'MessageInfo', ['server_host', 'topic'])
+    'MessageInfo', ['name', 'info', 'status', 'last_time', 'is_agent', 'is_pub'])
 
-AgentInfo = namedtuple(
-    'AgentInfo', ['server_host', 'status', 'last_time'])
 
-AgentMessageQueueInfo = namedtuple(
-    'AgentMessageQueueInfo', ['server_host', 'topic', 'status', 'last_time'])
-
+# - status: if using
+# - is_agent: if Agent
 
 # -------------------Table----------------
 class TransportTable:
     """
         TransportTable to record the information about the connector.
-        0 name: (server, topic)
-
-        Example:
-            Loop Table
-            1.For
-            table = TransportTable()
-            for name, info in table:
-                ...
-            2.Iter
-            table = iter(TransportTable)
-            next(table)
     """
 
-    def __init__(self):
-        self._table = {}
+    def __init__(self, config):
+        self.config = config
+        self._table = self.init_table()
 
-    # ---------------------Basic Func--------------------
-
-    def whole(self) -> dict:
+    def init_table(self):
         """
-            Return the whole table for a dict.
-        """
-        return self._table
-
-    def add(self, name, info):
-        """
-            Add a user to table.
-        """
-        if info in list(self._table.values()):
-            raise ValueError("current info:{} have existed in table".format(info))
-        self._table[name] = info
-
-    def get(self, name):
-        """
-            Get the information by name.
-        """
-        if name in self._table.keys():
-            return self._table[name]
-        else:
-            raise KeyError("Input user's name not exist.")
-
-    def update(self, name: str, info):
-        """
-            Update the user's info.
-        """
-        self._table[name] = info
-
-    def in_table(self, name) -> bool:
-        """
-            Check a name whether in table.
-        """
-        if name in self._table.keys():
-            return True
-        else:
-            return False
-
-    # -----------------------Magic Func--------------------
-    def __iter__(self):
-        return iter(self._table.items())
-
-    def __next__(self):
-        return next(self)
-
-
-class MessageQueueTransportTable(TransportTable):
-    def __init__(self):
-        super(MessageQueueTransportTable, self).__init__()
-
-    def filter_as_sub(self):
-        """
-
+            Initial table by config.
         Returns:
 
         """
-        receivers = {}
-        for name, info in self._table.items():
-            server_host = info.server_host
-            topic = info.topic
-            if server_host in receivers.keys():
-                if topic not in receivers[server_host]:
-                    receivers[server_host].append(topic)
-            else:
-                receivers[server_host] = [topic]
-        return receivers
-
-
-class AgentMQTransportTable(MessageQueueTransportTable):
-    """
-        MessageQueueTable: Literal
-        --------------------------
-        0 name: (server, topic, status, time)
-        1 name: (server, topic, status, time)
-        2 name: (server, topic, status, time)
-        3 name: (server, topic, status, time)
-        ...
-        E.g: "local@localhost:0000@topic" : ("localhost:0000", "topic", ALIVE, 15611165165)
-        ...
-        --------------------------
-        Example:
-            Loop Table
-            1.For
-            table = AgentTable()
-            for name, info in table:
-                ...
-            2.Iter
-            table = iter(AgentTable)
-            next(table)
-
-    """
-
-    def __init__(self):
-        super(AgentMQTransportTable, self).__init__()
-        self.main_name: Optional[str] = None  # ensure a main system.
-        self._init()
+        table = Table("messages")
+        return table
 
     # ---------------------Basic Func--------------------
-    def _init(self):
-        config_content = ConfigHandler().config
-        # info
-        mq_config = config_content.mq_config
-        system_name = mq_config.get('system_name')
-        system_address = mq_config.get('system_address')
-        system_port = mq_config.get('system_port')
-        system_topic = mq_config.get('system_topic')
-        name = f"{system_name}@{system_address}:{system_port}@{system_topic}"
-        # congregate
-        info = AgentMessageQueueInfo(server_host=f"{system_address}:{system_port}",
-                                     topic=system_topic,
-                                     status=AgentState.ALIVE,
-                                     last_time=int(time.time()))
-        self.add(name, info)
-        self.main_name = name
+    def whole(self) -> Table:
+        """
+            Return the whole table for a dict.
+        """
+        return self._table.info()
 
-    def add(self, name: Union[AID, str], info: AgentInfo):
+    def add(self, info: MessageInfo):
         """
-            Add a user to table.
+            Add to table.
         """
-        if isinstance(name, AID):
-            name = str(name)
-        super(AgentMQTransportTable, self).add(name, info)
+        self._table.insert(info)
 
-    def get(self, name: Union[AID, str]) -> AgentInfo:
+    def get(self, *args):
         """
-            Get the information by name.
+            Get the information.
         """
-        if isinstance(name, AID):
-            name = str(name)
-        return super(AgentMQTransportTable, self).get(name)
+        return self._table.where(*args).obs
 
-    def in_table(self, name: Union[AID, str]) -> bool:
+    def update(self, name: str, info: MessageInfo):
+        """
+            Update the user's info.
+        """
+        obs_info = self._table.where(name=name).obs
+        if 0 < len(obs_info) < 2:
+            self._table.remove(obs_info[0])
+            self._table.insert(info)
+        else:
+            raise ValueError("Much same info in table...")
+
+    def in_table(self, *args) -> bool:
         """
             Check a name whether in table.
         """
-        if isinstance(name, AID):
-            name = str(name)
-        return super(AgentMQTransportTable, self).in_table(name)
+        return True if self._table.where(*args).obs else False
 
 
-# -------------------Transport Behaviour------------
+class MessageQueueTransportTable(TransportTable):
+    def __init__(self, config: ConfigHandler):
+        super(MessageQueueTransportTable, self).__init__(config)
+
+    def init_table(self):
+        """
+        Returns:
+
+        """
+        cur_table = super(MessageQueueTransportTable, self).init_table()
+        mq_config = self.config.get("mq_config")
+
+        def extract_from_config(mq_info):
+            table = []
+            for name, data in mq_info.items():
+                is_pub = False
+                status = True
+                is_agent = data.pop("is_agent")
+                last_time = time.time()
+                message_info = MessageInfo(
+                    name=name,
+                    info=data,
+                    status=status,
+                    last_time=last_time,
+                    is_agent=is_agent,
+                    is_pub=is_pub)
+                table.append(message_info)
+            return table
+
+        pub_info = mq_config.get("pub_info")
+        pub_data = extract_from_config(pub_info)
+        cur_table.insert_many(pub_data)
+
+        sub_info = mq_config.get("sub_info")
+        sub_info = extract_from_config(sub_info)
+        cur_table.insert_many(sub_info)
+        return cur_table
+
+    def get_pubs(self):
+        pubs = self._table.where(is_pub=True, status=True).obs
+        return [pub.info for pub in pubs]
+
+    def get_subs(self):
+        subs = self._table.where(is_pub=False, status=True).obs
+        return [sub.info for sub in subs]
+
+    # -------------------Transport Behaviour------------
+
+
 class TransportBehaviour(InternalBehaviour):
     """
         A transport behaviour to manage message to
     """
-    _agent_table: Optional[TransportTable] = None
     _table: Optional[TransportTable] = None
 
     def __init__(self, agent):
@@ -221,17 +158,22 @@ class TransportBehaviour(InternalBehaviour):
         # except TimeoutError:
         #     pass
 
-    async def run(self, *args, **kwargs):
+    def run(self, *args, **kwargs):
         """
             start a loop to receive the data
             Example:
-               while True:
-                    self.step()
         """
 
     def on_start(self, *args, **kwargs):
         """
             Start a transport behaviour
         """
+        table_config = self.behaviour_config.get("table", False)
+        if not table_config:
+            table_config = "TransportTable"
+        import_path = "transport.behaviour"
+        basic_behaviour = importlib.import_module(import_path)
+        table_class = getattr(basic_behaviour, table_config)
+        self._table = table_class(self.agent.config_handler.get("configuration"))
         if self._table is None:
             raise ValueError("You should define a table in your transport behaviour.")

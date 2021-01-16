@@ -75,9 +75,11 @@ class BrainBehaviour(InternalBehaviour):
             on_start
         """
         # Start brain event and the other behaviour.
+        for task in daemon_tasks:
+            self._running_tasks = start_task(self._running_tasks, self._tasks_pool, task.run)
         await asyncio.gather(
-            self.run(),  # Brain Wait for 1 second.
-            *[b.run() for b in daemon_tasks]
+            self.run(),  # Default Wait for 0.1 second.
+            # *[b.run() for b in daemon_tasks]
         )
 
     # -----------------Task--------------------------

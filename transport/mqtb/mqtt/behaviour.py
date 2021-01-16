@@ -10,14 +10,11 @@ class MQTTMessageTransportBehaviour(MessageTransportBehaviour):
     def __init__(self, agent):
         super(MQTTMessageTransportBehaviour, self).__init__(agent)
         self._clients = {}
-        self._username = agent.config_handler.get('mq_config.username')
-        self._password = agent.config_handler.get('mq_config.password')
 
-    def pull(self, userdata, message):
+    def pull(self, message):
         """
             It's a callback function in MQTT `on_message` that it will set a task in `pool_executor`
         Args:
-            userdata:
             message:
 
         Returns:
@@ -32,10 +29,19 @@ class MQTTMessageTransportBehaviour(MessageTransportBehaviour):
         Args:
             message: Union[ACLMessage, None]
         """
-        addresses = self._confirm_the_address(message)
-        for server_host, topics in addresses.items():
-            _client = self._new_client(server_host)
+        subs = self._table.get_subs()
+        for message_info in subs:
+            host = message_info.get("host")
+            port = message_info.get("port")
+            topics = [tuple(topic) for topic in message_info.get("topics")]
+            userdata = {
+                "username": message_info.get("username"),
+                "password": message_info.get("password"),
+            }
+            _client = self._new_client(host, port, **userdata)
             _client.subscribe(topic=topics)
+            self._running_tasks = start_task(self._running_tasks, self._tasks_pool,
+                                             _client.loop_forever)
 
     def _produce(self, message: ACLMessage):
         """
@@ -44,13 +50,22 @@ class MQTTMessageTransportBehaviour(MessageTransportBehaviour):
             message: ACLMessage
 
         """
-        addresses = self._confirm_the_address(message)
-        for server_host, topics in addresses.items():
-            _client = self._new_client(server_host)
+        pubs = self._confirm_the_address(self._table, message)
+        for message_info in pubs:
+            host = message_info.get("host")
+            port = message_info.get("port")
+            topics = [tuple(topic) for topic in message_info.get("topics")]
+            userdata = {
+                "username": message_info.get("username"),
+                "password": message_info.get("password"),
+            }
+            _client = self._new_client(host, port, **userdata)
             _client.publish(topic=topics, payload=message.encode("json"))
+            self._running_tasks = start_task(self._running_tasks, self._tasks_pool,
+                                             _client.loop_forever)
 
     @abc.abstractmethod
-    def _new_client(self, server, *args):
+    def _new_client(self, host, port, *args, **kwargs):
         """
             New a MQTT Client and connect to the server.
         Args:
